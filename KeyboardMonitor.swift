@@ -131,6 +131,9 @@ final class KeyboardMonitor {
     private(set) var keyboardName: String?
     private(set) var states: [TestKey: KeyState] = [:]
     private(set) var log: [LogEntry] = []
+    /// When false, the GameController key handler is removed so GameController
+    /// cannot affect other input paths. Connection state is still tracked.
+    private(set) var isGameControllerKeysEnabled = true
 
     private let maxLogEntries = 50
 
@@ -171,7 +174,21 @@ final class KeyboardMonitor {
         addLog("Keyboard disconnected", source: .gameController)
     }
 
+    func setGameControllerKeysEnabled(_ enabled: Bool) {
+        isGameControllerKeysEnabled = enabled
+        attachHandler()
+        addLog("GameController key handler \(enabled ? "on" : "off")", source: .gameController)
+    }
+
+    func logSwitch(_ source: InputSource, enabled: Bool) {
+        addLog("\(source.rawValue) listener \(enabled ? "on" : "off")", source: source)
+    }
+
     private func attachHandler() {
+        guard isGameControllerKeysEnabled else {
+            GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = nil
+            return
+        }
         // GCKeyboard.coalesced combines every connected keyboard into one device.
         // The handler runs on the main queue by default.
         GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
@@ -182,6 +199,7 @@ final class KeyboardMonitor {
     }
 
     private func handleGameController(keyCode: GCKeyCode, pressed: Bool) {
+        guard isGameControllerKeysEnabled else { return }
         // A key event also proves a keyboard is attached, even if the connect notification was missed.
         if !isKeyboardConnected, let keyboard = GCKeyboard.coalesced {
             keyboardDidConnect(keyboard)
