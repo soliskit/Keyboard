@@ -101,7 +101,7 @@ struct ContentView: View {
                                 monitor.handleTyped("\n")
                                 isTextFieldFocused = true
                             }
-                        Text("Checks whether typed text reaches the app when raw key events do not. Counted as TF.")
+                        Text("Checks whether typed text reaches the app when raw key events do not. Counted as TF. GameController capture pauses automatically while this field is focused, so typing always works.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -142,6 +142,12 @@ struct ContentView: View {
         }
         .onChange(of: isTextFieldFocused) { _, focused in
             monitor.logFocusChange(.textField, active: focused)
+            // Pause GameController capture so hardware keys reach the field,
+            // then hand first responder back to the UIKit capture view afterward.
+            monitor.setTextFieldActive(focused)
+            if !focused {
+                uiKitFocusRequest += 1
+            }
         }
         .onChange(of: isUIKitCaptureEnabled) { _, enabled in
             if !enabled {
