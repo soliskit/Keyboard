@@ -21,32 +21,45 @@ struct ContentView: View {
                     onRequestUIKit: { uiKitFocusRequest += 1 }
                 )
 
-                KeyGroup(title: "Movement") {
-                    VStack(spacing: 10) {
-                        KeyTile(key: .w, state: monitor.state(for: .w))
-                            .frame(maxWidth: 260)
+                VStack(spacing: 20) {
+                    KeyGroup(title: "Movement") {
+                        VStack(spacing: 10) {
+                            KeyTile(key: .w, state: monitor.state(for: .w))
+                                .frame(maxWidth: 260)
+                            HStack(spacing: 10) {
+                                KeyTile(key: .a, state: monitor.state(for: .a))
+                                KeyTile(key: .s, state: monitor.state(for: .s))
+                                KeyTile(key: .d, state: monitor.state(for: .d))
+                            }
+                        }
+                    }
+
+                    KeyGroup(title: "Actions") {
                         HStack(spacing: 10) {
-                            KeyTile(key: .a, state: monitor.state(for: .a))
-                            KeyTile(key: .s, state: monitor.state(for: .s))
-                            KeyTile(key: .d, state: monitor.state(for: .d))
+                            KeyTile(key: .h, state: monitor.state(for: .h))
+                            KeyTile(key: .p, state: monitor.state(for: .p))
+                            KeyTile(key: .c, state: monitor.state(for: .c))
+                        }
+                    }
+
+                    KeyGroup(title: "Special") {
+                        HStack(spacing: 10) {
+                            KeyTile(key: .space, state: monitor.state(for: .space))
+                            KeyTile(key: .returnKey, state: monitor.state(for: .returnKey))
+                                .frame(width: 180)
                         }
                     }
                 }
-
-                KeyGroup(title: "Actions") {
-                    HStack(spacing: 10) {
-                        KeyTile(key: .h, state: monitor.state(for: .h))
-                        KeyTile(key: .p, state: monitor.state(for: .p))
-                        KeyTile(key: .c, state: monitor.state(for: .c))
-                    }
-                }
-
-                KeyGroup(title: "Special") {
-                    HStack(spacing: 10) {
-                        KeyTile(key: .space, state: monitor.state(for: .space))
-                        KeyTile(key: .returnKey, state: monitor.state(for: .returnKey))
-                            .frame(width: 180)
-                    }
+                // SwiftUI key handling only covers the key tiles, not the Typing Test field.
+                // With the whole screen focusable, the field showed a cursor but never received
+                // text or brought up the software keyboard while SwiftUI focus stayed on the container.
+                // SwiftUI focus is only requested from its pill, because taking it can take
+                // first responder away from the UIKit capture view.
+                .focusable()
+                .focused($isFocused)
+                .focusEffectDisabled()
+                .onKeyPress(phases: .all) { press in
+                    monitor.handleSwiftUI(press) ? .handled : .ignored
                 }
 
                 KeyGroup(title: "Typing Test") {
@@ -101,15 +114,6 @@ struct ContentView: View {
             .allowsHitTesting(false)
         }
         .background(Color(.systemGroupedBackground))
-        // SwiftUI key handling only works while this view has focus. It is only requested
-        // from the SwiftUI Focus pill, because taking SwiftUI focus can take first
-        // responder away from the UIKit capture view.
-        .focusable()
-        .focused($isFocused)
-        .focusEffectDisabled()
-        .onKeyPress(phases: .all) { press in
-            monitor.handleSwiftUI(press) ? .handled : .ignored
-        }
         .onAppear {
             monitor.start()
         }
