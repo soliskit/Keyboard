@@ -7,6 +7,8 @@ struct ContentView: View {
     @State private var isUIKitResponder = false
     @State private var uiKitFocusRequest = 0
     @State private var typedText = ""
+    @State private var isUIKitCaptureEnabled = true
+    @State private var isSwiftUIKeysEnabled = true
     @FocusState private var isTextFieldFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
 
@@ -55,11 +57,27 @@ struct ContentView: View {
                 // text or brought up the software keyboard while SwiftUI focus stayed on the container.
                 // SwiftUI focus is only requested from its pill, because taking it can take
                 // first responder away from the UIKit capture view.
-                .focusable()
+                .focusable(isSwiftUIKeysEnabled)
                 .focused($isFocused)
                 .focusEffectDisabled()
                 .onKeyPress(phases: .all) { press in
                     monitor.handleSwiftUI(press) ? .handled : .ignored
+                }
+
+                KeyGroup(title: "Listeners") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle("GameController key handler (GC)", isOn: Binding(
+                            get: { monitor.isGameControllerKeysEnabled },
+                            set: { monitor.setGameControllerKeysEnabled($0) }
+                        ))
+                        Toggle("UIKit capture view (UK)", isOn: $isUIKitCaptureEnabled)
+                        Toggle("SwiftUI key focus (UI)", isOn: $isSwiftUIKeysEnabled)
+                        Text("Turn listeners off one at a time, then try the Typing Test, to find which one blocks text input.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
                 }
 
                 KeyGroup(title: "Typing Test") {
@@ -100,18 +118,20 @@ struct ContentView: View {
         }
         .background {
             // UIKit key capture. It becomes first responder automatically when it appears.
-            KeyCaptureView(
-                focusRequest: uiKitFocusRequest,
-                onKey: { usage, characters, pressed in
-                    monitor.handleUIKit(usage: usage, characters: characters, pressed: pressed)
-                },
-                onFirstResponderChange: { active in
-                    isUIKitResponder = active
-                    monitor.logFocusChange(.uiKit, active: active)
-                }
-            )
-            .frame(width: 1, height: 1)
-            .allowsHitTesting(false)
+            if isUIKitCaptureEnabled {
+                KeyCaptureView(
+                    focusRequest: uiKitFocusRequest,
+                    onKey: { usage, characters, pressed in
+                        monitor.handleUIKit(usage: usage, characters: characters, pressed: pressed)
+                    },
+                    onFirstResponderChange: { active in
+                        isUIKitResponder = active
+                        monitor.logFocusChange(.uiKit, active: active)
+                    }
+                )
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+            }
         }
         .background(Color(.systemGroupedBackground))
         .onAppear {
@@ -120,12 +140,29 @@ struct ContentView: View {
         .onChange(of: isFocused) { _, focused in
             monitor.logFocusChange(.swiftUI, active: focused)
         }
+        .onChange(of: isTextFieldFocused) { _, focused in
+            monitor.logFocusChange(.textField, active: focused)
+        }
+        .onChange(of: isUIKitCaptureEnabled) { _, enabled in
+            if !enabled {
+                isUIKitResponder = false
+            }
+            monitor.logSwitch(.uiKit, enabled: enabled)
+        }
+        .onChange(of: isSwiftUIKeysEnabled) { _, enabled in
+            if !enabled {
+                isFocused = false
+            }
+            monitor.logSwitch(.swiftUI, enabled: enabled)
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            guard phase == .active else { return }
+            // Do not take the keyboard back from the text field when the app becomes active.
+            if !isTextFieldFocused {
                 uiKitFocusRequest += 1
-                if let keyboard = GCKeyboard.coalesced {
-                    monitor.keyboardDidConnect(keyboard)
-                }
+            }
+            if let keyboard = GCKeyboard.coalesced {
+                monitor.keyboardDidConnect(keyboard)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { note in
