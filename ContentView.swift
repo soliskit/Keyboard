@@ -22,7 +22,7 @@ struct ContentView: View {
                 KeyGroup(title: "Movement") {
                     VStack(spacing: 10) {
                         KeyTile(key: .w, state: monitor.state(for: .w))
-                            .frame(maxWidth: 110)
+                            .frame(maxWidth: 220)
                         HStack(spacing: 10) {
                             KeyTile(key: .a, state: monitor.state(for: .a))
                             KeyTile(key: .s, state: monitor.state(for: .s))
