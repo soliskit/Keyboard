@@ -4,14 +4,20 @@ import GameController
 struct ContentView: View {
     @State private var monitor = KeyboardMonitor()
     @FocusState private var isFocused: Bool
+    @State private var isUIKitResponder = false
+    @State private var uiKitFocusRequest = 0
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                ConnectionCard(monitor: monitor, isFocused: isFocused) {
-                    isFocused = true
-                }
+                ConnectionCard(
+                    monitor: monitor,
+                    isFocused: isFocused,
+                    isUIKitResponder: isUIKitResponder,
+                    onRequestFocus: { isFocused = true },
+                    onRequestUIKit: { uiKitFocusRequest += 1 }
+                )
 
                 KeyGroup(title: "Movement") {
                     VStack(spacing: 10) {
@@ -43,20 +49,36 @@ struct ContentView: View {
 
                 EventLog(entries: monitor.log) {
                     monitor.reset()
-                    isFocused = true
+                    uiKitFocusRequest += 1
                 }
             }
             .padding()
             .frame(maxWidth: 700)
             .frame(maxWidth: .infinity)
         }
+        .background {
+            // UIKit key capture. It becomes first responder automatically when it appears.
+            KeyCaptureView(
+                focusRequest: uiKitFocusRequest,
+                onKey: { usage, characters, pressed in
+                    monitor.handleUIKit(usage: usage, characters: characters, pressed: pressed)
+                },
+                onFirstResponderChange: { active in
+                    isUIKitResponder = active
+                    monitor.logFocusChange(.uiKit, active: active)
+                }
+            )
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+        }
         .background(Color(.systemGroupedBackground))
         .contentShape(Rectangle())
-        .onTapGesture { isFocused = true }
-        // SwiftUI key handling only works while this view has focus.
+        .onTapGesture { uiKitFocusRequest += 1 }
+        // SwiftUI key handling only works while this view has focus. It is only requested
+        // from the SwiftUI Focus pill, because taking SwiftUI focus can take first
+        // responder away from the UIKit capture view.
         .focusable()
         .focused($isFocused)
-        .defaultFocus($isFocused, true)
         .focusEffectDisabled()
         .onKeyPress(phases: .all) { press in
             monitor.handleSwiftUI(press) ? .handled : .ignored
@@ -64,17 +86,12 @@ struct ContentView: View {
         .onAppear {
             monitor.start()
         }
-        .task {
-            // Focus requests made before the window is fully on screen are dropped,
-            // so ask again after a short delay.
-            for _ in 0..<5 where !isFocused {
-                isFocused = true
-                try? await Task.sleep(for: .milliseconds(300))
-            }
+        .onChange(of: isFocused) { _, focused in
+            monitor.logFocusChange(.swiftUI, active: focused)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                isFocused = true
+                uiKitFocusRequest += 1
                 if let keyboard = GCKeyboard.coalesced {
                     monitor.keyboardDidConnect(keyboard)
                 }
@@ -94,7 +111,9 @@ struct ContentView: View {
 private struct ConnectionCard: View {
     let monitor: KeyboardMonitor
     let isFocused: Bool
+    let isUIKitResponder: Bool
     let onRequestFocus: () -> Void
+    let onRequestUIKit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -113,22 +132,9 @@ private struct ConnectionCard: View {
                 Spacer()
             }
 
-            HStack(spacing: 8) {
-                StatusPill(
-                    title: "GameController",
-                    isOn: monitor.isKeyboardConnected,
-                    onText: "Connected",
-                    offText: "Waiting"
-                )
-                Button(action: onRequestFocus) {
-                    StatusPill(
-                        title: "SwiftUI Focus",
-                        isOn: isFocused,
-                        onText: "Listening",
-                        offText: "Tap here"
-                    )
-                }
-                .buttonStyle(.plain)
+            ViewThatFits {
+                HStack(spacing: 8) { pills }
+                VStack(alignment: .leading, spacing: 8) { pills }
             }
         }
         .padding()
@@ -139,6 +145,34 @@ private struct ConnectionCard: View {
                 .strokeBorder(monitor.isKeyboardConnected ? Color.green : Color.orange, lineWidth: 2)
         )
         .animation(.default, value: monitor.isKeyboardConnected)
+    }
+
+    @ViewBuilder
+    private var pills: some View {
+        StatusPill(
+            title: "GameController",
+            isOn: monitor.isKeyboardConnected,
+            onText: "Connected",
+            offText: "Waiting"
+        )
+        Button(action: onRequestUIKit) {
+            StatusPill(
+                title: "UIKit Responder",
+                isOn: isUIKitResponder,
+                onText: "Listening",
+                offText: "Tap here"
+            )
+        }
+        .buttonStyle(.plain)
+        Button(action: onRequestFocus) {
+            StatusPill(
+                title: "SwiftUI Focus",
+                isOn: isFocused,
+                onText: "Listening",
+                offText: "Tap here"
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -181,7 +215,7 @@ private struct KeyTile: View {
     let key: TestKey
     let state: KeyState
 
-    private var totalCount: Int { max(state.gameControllerCount, state.swiftUICount) }
+    private var totalCount: Int { state.maxCount }
     private var seen: Bool { totalCount > 0 }
 
     var body: some View {
@@ -200,6 +234,7 @@ private struct KeyTile: View {
             HStack(spacing: 4) {
                 SourceDot(label: "GC", isDown: state.gameControllerDown, count: state.gameControllerCount)
                 SourceDot(label: "UI", isDown: state.swiftUIDown, count: state.swiftUICount)
+                SourceDot(label: "UK", isDown: state.uiKitDown, count: state.uiKitCount)
             }
         }
         .foregroundStyle(state.isDown ? Color.white : Color.primary)
@@ -246,6 +281,14 @@ private struct EventLog: View {
     let entries: [LogEntry]
     let onReset: () -> Void
 
+    private func color(for source: InputSource) -> Color {
+        switch source {
+        case .gameController: return .blue
+        case .swiftUI: return .purple
+        case .uiKit: return .orange
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -266,8 +309,8 @@ private struct EventLog: View {
                         Text(entry.date, format: .dateTime.hour().minute().second())
                             .foregroundStyle(.secondary)
                         if let source = entry.source {
-                            Text(source == .gameController ? "GC" : "UI")
-                                .foregroundStyle(source == .gameController ? Color.blue : Color.purple)
+                            Text(source.shortName)
+                                .foregroundStyle(color(for: source))
                         }
                         Text(entry.text)
                     }
@@ -278,7 +321,7 @@ private struct EventLog: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
 
-            Text("GC = GameController framework (GCKeyboard). UI = SwiftUI onKeyPress. If only one source lights up, that path is the one that works in your environment.")
+            Text("GC = GameController framework (GCKeyboard). UI = SwiftUI onKeyPress. UK = UIKit pressesBegan on a first responder view. If only some sources light up, that path is the one that works in your environment.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
