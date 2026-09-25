@@ -134,6 +134,10 @@ final class KeyboardMonitor {
     /// When false, the GameController key handler is removed so GameController
     /// cannot affect other input paths. Connection state is still tracked.
     private(set) var isGameControllerKeysEnabled = true
+    /// True while the Typing Test field is focused. The GameController key handler
+    /// is suspended in that state because an installed keyChangedHandler keeps
+    /// hardware key events away from the responder chain, so the field gets no text.
+    private var isTextFieldActive = false
 
     private let maxLogEntries = 50
 
@@ -180,12 +184,22 @@ final class KeyboardMonitor {
         addLog("GameController key handler \(enabled ? "on" : "off")", source: .gameController)
     }
 
+    /// Pauses or resumes the GameController key handler for text entry.
+    /// While a keyChangedHandler is installed, iOS delivers hardware keyboard
+    /// events to GameController instead of the app's text fields.
+    func setTextFieldActive(_ active: Bool) {
+        guard active != isTextFieldActive else { return }
+        isTextFieldActive = active
+        attachHandler()
+        addLog("GameController handler \(active ? "paused for typing" : "resumed")", source: .gameController)
+    }
+
     func logSwitch(_ source: InputSource, enabled: Bool) {
         addLog("\(source.rawValue) listener \(enabled ? "on" : "off")", source: source)
     }
 
     private func attachHandler() {
-        guard isGameControllerKeysEnabled else {
+        guard isGameControllerKeysEnabled, !isTextFieldActive else {
             GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = nil
             return
         }
@@ -199,7 +213,7 @@ final class KeyboardMonitor {
     }
 
     private func handleGameController(keyCode: GCKeyCode, pressed: Bool) {
-        guard isGameControllerKeysEnabled else { return }
+        guard isGameControllerKeysEnabled, !isTextFieldActive else { return }
         // A key event also proves a keyboard is attached, even if the connect notification was missed.
         if !isKeyboardConnected, let keyboard = GCKeyboard.coalesced {
             keyboardDidConnect(keyboard)
