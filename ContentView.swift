@@ -9,7 +9,9 @@ struct ContentView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                ConnectionCard(monitor: monitor, isFocused: isFocused)
+                ConnectionCard(monitor: monitor, isFocused: isFocused) {
+                    isFocused = true
+                }
 
                 KeyGroup(title: "Movement") {
                     VStack(spacing: 10) {
@@ -34,9 +36,8 @@ struct ContentView: View {
                 KeyGroup(title: "Special") {
                     HStack(spacing: 10) {
                         KeyTile(key: .space, state: monitor.state(for: .space))
-                            .frame(maxWidth: .infinity)
-                            .layoutPriority(2)
                         KeyTile(key: .returnKey, state: monitor.state(for: .returnKey))
+                            .frame(width: 180)
                     }
                 }
 
@@ -55,13 +56,21 @@ struct ContentView: View {
         // SwiftUI key handling only works while this view has focus.
         .focusable()
         .focused($isFocused)
+        .defaultFocus($isFocused, true)
         .focusEffectDisabled()
         .onKeyPress(phases: .all) { press in
             monitor.handleSwiftUI(press) ? .handled : .ignored
         }
         .onAppear {
             monitor.start()
-            isFocused = true
+        }
+        .task {
+            // Focus requests made before the window is fully on screen are dropped,
+            // so ask again after a short delay.
+            for _ in 0..<5 where !isFocused {
+                isFocused = true
+                try? await Task.sleep(for: .milliseconds(300))
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -85,6 +94,7 @@ struct ContentView: View {
 private struct ConnectionCard: View {
     let monitor: KeyboardMonitor
     let isFocused: Bool
+    let onRequestFocus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -110,12 +120,15 @@ private struct ConnectionCard: View {
                     onText: "Connected",
                     offText: "Waiting"
                 )
-                StatusPill(
-                    title: "SwiftUI Focus",
-                    isOn: isFocused,
-                    onText: "Listening",
-                    offText: "Tap screen"
-                )
+                Button(action: onRequestFocus) {
+                    StatusPill(
+                        title: "SwiftUI Focus",
+                        isOn: isFocused,
+                        onText: "Listening",
+                        offText: "Tap here"
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding()
