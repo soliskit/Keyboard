@@ -87,12 +87,14 @@ enum InputSource: String {
     case gameController = "GameController"
     case swiftUI = "SwiftUI"
     case uiKit = "UIKit"
+    case textField = "Text Field"
 
     var shortName: String {
         switch self {
         case .gameController: return "GC"
         case .swiftUI: return "UI"
         case .uiKit: return "UK"
+        case .textField: return "TF"
         }
     }
 }
@@ -101,12 +103,14 @@ struct KeyState {
     var gameControllerDown = false
     var swiftUIDown = false
     var uiKitDown = false
+    var textFieldDown = false
     var gameControllerCount = 0
     var swiftUICount = 0
     var uiKitCount = 0
+    var textFieldCount = 0
 
-    var isDown: Bool { gameControllerDown || swiftUIDown || uiKitDown }
-    var maxCount: Int { max(gameControllerCount, swiftUICount, uiKitCount) }
+    var isDown: Bool { gameControllerDown || swiftUIDown || uiKitDown || textFieldDown }
+    var maxCount: Int { max(gameControllerCount, swiftUICount, uiKitCount, textFieldCount) }
 }
 
 struct LogEntry: Identifiable {
@@ -237,6 +241,30 @@ final class KeyboardMonitor {
         state.uiKitDown = pressed
         states[key] = state
         addLog("\(key.label) \(pressed ? "down" : "up")", source: .uiKit)
+    }
+
+    /// Handles a character typed into the text field test. Text input only reports
+    /// key down, so the tile flashes briefly instead of staying lit while held.
+    func handleTyped(_ character: Character) {
+        let key: TestKey?
+        switch character {
+        case " ": key = .space
+        case "\n", "\r": key = .returnKey
+        default: key = TestKey(rawValue: String(character).lowercased())
+        }
+        guard let key else {
+            addLog("Other text \"\(character)\" typed", source: .textField)
+            return
+        }
+        var state = self.state(for: key)
+        state.textFieldCount += 1
+        state.textFieldDown = true
+        states[key] = state
+        addLog("\(key.label) typed", source: .textField)
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            states[key]?.textFieldDown = false
+        }
     }
 
     func logFocusChange(_ source: InputSource, active: Bool) {

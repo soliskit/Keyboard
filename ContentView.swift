@@ -6,6 +6,8 @@ struct ContentView: View {
     @FocusState private var isFocused: Bool
     @State private var isUIKitResponder = false
     @State private var uiKitFocusRequest = 0
+    @State private var typedText = ""
+    @FocusState private var isTextFieldFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -22,7 +24,7 @@ struct ContentView: View {
                 KeyGroup(title: "Movement") {
                     VStack(spacing: 10) {
                         KeyTile(key: .w, state: monitor.state(for: .w))
-                            .frame(maxWidth: 110)
+                            .frame(maxWidth: 260)
                         HStack(spacing: 10) {
                             KeyTile(key: .a, state: monitor.state(for: .a))
                             KeyTile(key: .s, state: monitor.state(for: .s))
@@ -44,6 +46,33 @@ struct ContentView: View {
                         KeyTile(key: .space, state: monitor.state(for: .space))
                         KeyTile(key: .returnKey, state: monitor.state(for: .returnKey))
                             .frame(width: 180)
+                    }
+                }
+
+                KeyGroup(title: "Typing Test") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("Tap here, then type the test keys", text: $typedText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.title3.monospaced())
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .focused($isTextFieldFocused)
+                            .onChange(of: typedText) { old, new in
+                                guard new.count > old.count, new.hasPrefix(old) else { return }
+                                for character in new.dropFirst(old.count) {
+                                    monitor.handleTyped(character)
+                                }
+                                if new.count > 40 {
+                                    typedText = String(new.suffix(20))
+                                }
+                            }
+                            .onSubmit {
+                                monitor.handleTyped("\n")
+                                isTextFieldFocused = true
+                            }
+                        Text("Checks whether typed text reaches the app when raw key events do not. Counted as TF.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -72,8 +101,6 @@ struct ContentView: View {
             .allowsHitTesting(false)
         }
         .background(Color(.systemGroupedBackground))
-        .contentShape(Rectangle())
-        .onTapGesture { uiKitFocusRequest += 1 }
         // SwiftUI key handling only works while this view has focus. It is only requested
         // from the SwiftUI Focus pill, because taking SwiftUI focus can take first
         // responder away from the UIKit capture view.
@@ -235,6 +262,7 @@ private struct KeyTile: View {
                 SourceDot(label: "GC", isDown: state.gameControllerDown, count: state.gameControllerCount)
                 SourceDot(label: "UI", isDown: state.swiftUIDown, count: state.swiftUICount)
                 SourceDot(label: "UK", isDown: state.uiKitDown, count: state.uiKitCount)
+                SourceDot(label: "TF", isDown: state.textFieldDown, count: state.textFieldCount)
             }
         }
         .foregroundStyle(state.isDown ? Color.white : Color.primary)
@@ -286,6 +314,7 @@ private struct EventLog: View {
         case .gameController: return .blue
         case .swiftUI: return .purple
         case .uiKit: return .orange
+        case .textField: return .teal
         }
     }
 
@@ -321,7 +350,7 @@ private struct EventLog: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
 
-            Text("GC = GameController framework (GCKeyboard). UI = SwiftUI onKeyPress. UK = UIKit pressesBegan on a first responder view. If only some sources light up, that path is the one that works in your environment.")
+            Text("GC = GameController framework (GCKeyboard). UI = SwiftUI onKeyPress. UK = UIKit pressesBegan on a first responder view. TF = text typed into the Typing Test field. If only some sources light up, that path is the one that works in your environment.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
