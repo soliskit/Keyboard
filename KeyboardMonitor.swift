@@ -41,6 +41,22 @@ enum TestKey: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Maps a UIKit hardware key usage code to a test key.
+    init?(hidUsage: UIKeyboardHIDUsage) {
+        switch hidUsage {
+        case .keyboardW: self = .w
+        case .keyboardA: self = .a
+        case .keyboardS: self = .s
+        case .keyboardD: self = .d
+        case .keyboardH: self = .h
+        case .keyboardP: self = .p
+        case .keyboardC: self = .c
+        case .keyboardSpacebar: self = .space
+        case .keyboardReturnOrEnter, .keypadEnter: self = .returnKey
+        default: return nil
+        }
+    }
+
     /// Maps a SwiftUI key press to a test key.
     init?(press: KeyPress) {
         if press.key == .space {
@@ -70,15 +86,27 @@ enum TestKey: String, CaseIterable, Identifiable {
 enum InputSource: String {
     case gameController = "GameController"
     case swiftUI = "SwiftUI"
+    case uiKit = "UIKit"
+
+    var shortName: String {
+        switch self {
+        case .gameController: return "GC"
+        case .swiftUI: return "UI"
+        case .uiKit: return "UK"
+        }
+    }
 }
 
 struct KeyState {
     var gameControllerDown = false
     var swiftUIDown = false
+    var uiKitDown = false
     var gameControllerCount = 0
     var swiftUICount = 0
+    var uiKitCount = 0
 
-    var isDown: Bool { gameControllerDown || swiftUIDown }
+    var isDown: Bool { gameControllerDown || swiftUIDown || uiKitDown }
+    var maxCount: Int { max(gameControllerCount, swiftUICount, uiKitCount) }
 }
 
 struct LogEntry: Identifiable {
@@ -88,8 +116,9 @@ struct LogEntry: Identifiable {
     let text: String
 }
 
-/// Tracks keyboard connection state and key presses from two independent sources:
-/// the GameController framework (GCKeyboard) and SwiftUI's onKeyPress.
+/// Tracks keyboard connection state and key presses from three independent sources:
+/// the GameController framework (GCKeyboard), SwiftUI's onKeyPress and UIKit's
+/// pressesBegan/pressesEnded on a first responder view.
 /// Comparing both shows which input path works inside Swift Playgrounds on iPadOS.
 @MainActor
 @Observable
@@ -191,6 +220,28 @@ final class KeyboardMonitor {
         }
         states[key] = state
         return true
+    }
+
+    /// Handles a UIKit hardware key press or release.
+    func handleUIKit(usage: UIKeyboardHIDUsage, characters: String, pressed: Bool) {
+        guard let key = TestKey(hidUsage: usage) else {
+            if pressed {
+                addLog("Other key \"\(characters)\" (usage \(usage.rawValue)) pressed", source: .uiKit)
+            }
+            return
+        }
+        var state = self.state(for: key)
+        if pressed && !state.uiKitDown {
+            state.uiKitCount += 1
+        }
+        state.uiKitDown = pressed
+        states[key] = state
+        addLog("\(key.label) \(pressed ? "down" : "up")", source: .uiKit)
+    }
+
+    func logFocusChange(_ source: InputSource, active: Bool) {
+        let what = source == .uiKit ? "first responder" : "focus"
+        addLog("\(source.rawValue) \(what) \(active ? "gained" : "lost")", source: source)
     }
 
     func reset() {
